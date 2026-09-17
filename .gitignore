@@ -1,0 +1,36 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+
+# Temporales habituales de R/RMarkdown/LaTeX
+*_cache/
+*_files/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Archivos temporales/comprimidos de SIG
+*.tmp
+*.bak
+*.aux.xml
+*.ovr
+*.qgz~
+*.qgs~
+
+# Ráster grandes: activa o amplía estos patrones según tu caso.
+# NO ignores un archivo pequeño que sea imprescindible para reproducir el análisis.
+*.tif
+*.tiff
+*.img
+*.vrt
+*.asc
+*.bil
+*.grd
+*.nc
