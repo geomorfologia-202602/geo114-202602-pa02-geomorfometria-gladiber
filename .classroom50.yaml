@@ -1,0 +1,12 @@
+schema: "classroom50/repo-config/v1"
+classroom: "geo114-202602"
+assignment: "pa02-geomorfometria"
+owner:
+  username: "gladiber"
+  id: 318027951
+  accepted_at: "2026-09-17T00:10:49Z"
+source:
+  owner: "geomorfologia-202602"
+  owner_id: 317949037
+  repo: "geomorfometria"
+  branch: "main"
