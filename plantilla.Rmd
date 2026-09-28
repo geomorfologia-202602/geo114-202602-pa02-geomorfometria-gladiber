@@ -1,11 +1,12 @@
 ---
-title: "Mi manuscrito en APA 7"
-author: "Autor"
+title:  "Análisis geomorfométrico de cuencas visuales para la identificación de puntos potenciales de observación en el Hoyo de Pelempito, República Dominicana"
+author: "Gladiber Hernández"
 affiliation: "Universidad Autónoma de Santo Domingo (UASD)"
 output:
   bookdown::pdf_document2:
     latex_engine: xelatex
     fig_caption: true
+    fig_crop: false
     extra_dependencies: ["float", "booktabs", "longtable"]
 documentclass: apa7
 classoption: [man,floatsintext]
@@ -13,251 +14,993 @@ fontsize: 12pt
 lang: es-ES
 bibliography: bibliografia.bib
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
-header-includes:
-  - \title{Mi manuscrito en APA 7}
-  - \shorttitle{Título corto}
-  - \affiliation{Universidad Autónoma de Santo Domingo (UASD)}
-  - \abstract{ESCRIBE AQUÍ TU RESUMEN. NO INTRODUZCAS ENTER NI SALTOS DE LÍNEA.}
-  - \keywords{palabra clave 1, palabra clave 2, palabra clave 3}
-  - \usepackage{orcidlink}
-  # - \usepackage{float}
-  - \usepackage[all]{nowidow}
-  - \usepackage{pdflscape}
-  - \renewcommand\spanishtablename{Tabla}
-  - \usepackage{xcolor}
-  - \usepackage{tabu}
-  - \usepackage{xurl}
-  - \usepackage{setspace}
-  - \usepackage{etoolbox}
-  - \usepackage{fvextra}
-  - \AtBeginEnvironment{Shaded}{\singlespacing\footnotesize}
-  - \DefineVerbatimEnvironment{verbatim}{Verbatim}{
+header-includes: |
+  \shorttitle{Cuencas visuales en el Hoyo de Pelempito}
+  \affiliation{Universidad Autónoma de Santo Domingo (UASD)}
+  \abstract{Se comparó la superficie visible desde el mirador existente y cuatro puntos exploratorios en el Hoyo de Pelempito. Se utilizó el modelo de superficie Copernicus DEM GLO-30 para describir la pendiente y las formas del relieve y calcular cuencas visuales con observadores a 1,7 y 5 m. P01 presentó la mayor superficie visible a 1,7 m; P04 registró el mayor aumento al elevar al observador. La forma del relieve en P04 ayuda a describir el lugar, pero no explica por sí sola ese cambio. Las posiciones exploratorias y la altura de la terraza del mirador requieren una revisión en campo.}
+  \keywords{geomorfometría, cuenca visual, Hoyo de Pelempito}
+  \usepackage{orcidlink}
+  \usepackage[all]{nowidow}
+  \usepackage{pdflscape}
+  \renewcommand\spanishtablename{Tabla}
+  \usepackage{xcolor}
+  \usepackage{tabu}
+  \usepackage{xurl}
+  \usepackage{setspace}
+  \usepackage{etoolbox}
+  \usepackage{fvextra}
+  \AtBeginEnvironment{Shaded}{\singlespacing\footnotesize}
+  \DefineVerbatimEnvironment{verbatim}{Verbatim}{
       fontsize=\scriptsize,
       breaklines=true,
       breakanywhere=true,
       formatcom=\singlespacing
     }
-  # - \usepackage[left]{lineno}
-  # - \linenumbers
+
 ---
 
 \pagebreak
 
-> **ANTES DE ENTREGAR:** este archivo contiene texto, tablas, figuras y datos de ejemplo cuya única finalidad es mostrar cómo construir el manuscrito. Sustituye o elimina todo contenido demostrativo que no corresponda a tu investigación. No deben permanecer en la entrega `mtcars`, `figura-ejemplo.jpg`, tablas de ejemplo ni estas instrucciones.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(
-  cache = FALSE,
-  echo = FALSE,
-  warning = FALSE,
-  message = FALSE,
-  dpi = 300,
-  fig.pos = "H",
-  fig.align = "center",
-  out.width = "100%"
-)
-
-options(
-  knitr.duplicate.label = "allow",
-  knitr.kable.NA = ""
-)
-
-# Aleatorización
-set.seed(99)
-
-# Paquetes
-library(tidyverse)
+knitr::opts_chunk$set(cache = FALSE, echo = FALSE, warning = FALSE,
+                      message = FALSE, dpi = 300, fig.pos = "H",
+                      fig.align = "center", out.width = "100%")
+library(sf)
+library(terra)
+library(ggplot2)
 library(knitr)
 library(kableExtra)
 
-# Tema general para gráficos ggplot2
-theme_set(theme_bw())
+# Las rutas son relativas a la carpeta que contiene plantilla.Rmd.
+dir_raw <- "data/raw"
+dir_processed <- "data/processed"
+dir_viewshed <- "data/viewshed"
+dir.create(dir_processed, recursive = TRUE, showWarnings = FALSE)
+dir.create(dir_viewshed, recursive = TRUE, showWarnings = FALSE)
+
+dem_raw_file <- file.path(dir_raw, "dem_copernicus_glo30_pelempito.tif")
+dem_repro_file <- file.path(dir_processed, "dem_pelempito_utm19n_repro.tif")
+puntos_file <- file.path(dir_processed, "puntos_mirador_candidatos_final.gpkg")
+# Referencia planimétrica sobre la edificación del Centro de Visitantes.
+# En WGS84: longitud negativa (oeste), latitud positiva (norte).
+p01_lon <- -71.509585
+p01_lat <- 18.091231
+search_values <- c(3L, 7L, 11L, 17L, 33L)
+alturas_m <- c(1.7, 5)
+radio_viewshed_m <- 10000
+fmt <- function(x, digits = 2) formatC(x, format = "f", digits = digits,
+                                        decimal.mark = ",")
+theme_set(theme_bw(base_size = 10))
 ```
 
 # Introducción
 
-Esta sección debes incluir las partes básicas que se supone debe contener una introducción. Apóyate en la [Guía para proyecto de investigación](https://biogeografia-master.github.io/proyecto-de-investigacion/guia-para-proyecto-de-investigacion.html) y en el mandato de la práctica. Aquí conviene redactar de forma fluida y apoyarse en referencias bibliográficas desde el inicio. Puedes usar citas indirectas: "La geomorfometría es una herramienta útil para la extracción de conclusiones geomorfológicas [@hengl2009geomorphometry; @anderson2010geomorphology]". También puedes usar citas narrativas, por ejemplo: "@anderson2010geomorphology discuten la importancia del tema en contextos comparables".
+La geomorfometría estudia cuantitativamente las formas del relieve a partir de modelos digitales de elevación [@hengl2009geomorphometry; @florinsky2017geomorphometry]. Un análisis de cuenca visual permite identificar las celdas que mantienen una línea de visión desde una posición determinada y comparar distintos lugares de observación [@osullivan2001visibility].
+
+En el Hoyo de Pelempito, la edificación del Centro de Visitantes alberga el mirador actual. Me interesa comparar la superficie que podría observarse desde un punto aproximado sobre esa edificación con la de otros cuatro puntos exploratorios del entorno. A partir de esta comparación, se plantea la siguiente pregunta: **¿cómo varía la superficie visible entre el mirador existente y cuatro puntos exploratorios, y cómo cambia al modificar la altura del observador?**
+
+El objetivo es comparar cinco puntos mediante cuencas visuales calculadas para alturas de 1,7 y 5 m sobre la superficie del DSM. Para describir el relieve en cada punto, se registran su elevación, la pendiente y la forma del relieve que le asigna la clasificación de geomorfones. Se espera que la superficie visible varíe según las obstrucciones del relieve cercano y que el efecto de aumentar la altura del observador sea diferente en cada punto. También se examina si un punto situado a mayor altura sobre el nivel del mar ofrece necesariamente una mayor superficie visible.
 
 # Materiales y métodos
 
-Esta sección debe describir con claridad los datos, materiales, procedimientos, criterios de selección, procesamiento y métodos de análisis. También es un buen lugar para incluir referencias bibliográficas que justifiquen decisiones metodológicas. En esta sección deben existir también citas, ya sean directas [@hengl2009geomorphometry] o narrativas.
+## Área de estudio
 
-Por ejemplo, los insumos utilizados pueden resumirse en la Tabla \@ref(tab:tabla-resumen), mientras que la Tabla \@ref(tab:tabla-manual) muestra un ejemplo de tabla escrita manualmente en Markdown.
+El área de estudio comprende el Hoyo de Pelempito y su entorno en la Sierra de Bahoruco, al suroeste de la República Dominicana. Se estudia el mirador del Centro de Visitantes y cuatro puntos exploratorios del entorno. El análisis se limita a un radio de 10 km alrededor de cada punto. Se escogió la misma distancia para comparar la superficie visible dentro de un alcance común; se trata de un límite del estudio, no de la distancia máxima a la que una persona puede ver.
 
-## Ejemplo de tabla generada con `kableExtra`
+Se compararon dos alturas del observador: 1,7 m, como aproximación a los ojos de una persona de pie, y 5 m, como escenario hipotético de observación desde una posición elevada. Ambas alturas se aplicaron sobre la superficie representada por el DSM. La altura real de la terraza del mirador existente no se conoce, por lo que el escenario de 5 m no pretende reproducirla exactamente.
 
+## Datos
 
-```{r tabla-resumen}
-tabla_ejemplo <- tibble(
-  Material = c("Datos espaciales", "Software", "Bibliografía"),
-  Descripcion = c(
-    "Capas vectoriales y ráster usadas en el análisis",
-    "R, RStudio y paquetes especializados",
-    "Fuentes académicas empleadas como soporte"
+### Modelo digital de elevación
+
+Se utilizó la banda `DEM` de la colección `COPERNICUS/DEM/GLO30_2024_1` de Google Earth Engine. El archivo exportado, contiene el recorte utilizado para analizar el entorno de los cinco puntos con un radio de 10 km. Aunque se denomina DEM, este producto es un modelo digital de superficie (DSM): representa la altura de la superficie registrada y puede incluir vegetación, edificaciones e infraestructura, en vez de mostrar únicamente el suelo desnudo. Por ello, las obstrucciones identificadas en el análisis de visibilidad no deben atribuirse únicamente al relieve. Su resolución cercana a 30 m permite examinar la visibilidad a escala del paisaje, pero no identificar por separado detalles pequeños, como la terraza del mirador. Además, las alturas de árboles o construcciones incorporadas en el modelo pueden influir en las líneas de visión calculadas.
+
+Para medir las distancias y las áreas en metros, el archivo original se reproyectó a WGS 84 / UTM zona 19N (EPSG:32619), con celdas de 30 × 30 m. Se utilizó interpolación bilineal: la altura de cada celda nueva se estima a partir de las celdas vecinas. Se indica este método porque la forma de asignar alturas durante la reproyección puede modificar ligeramente el relieve representado y, con ello, el resultado de la cuenca visual.
+
+```{r cargar-dem, include=FALSE}
+if (!file.exists(dem_raw_file)) stop("Falta el DEM de entrada: ", dem_raw_file)
+dem_raw <- terra::rast(dem_raw_file)
+dem <- terra::project(dem_raw, "EPSG:32619", method = "bilinear", res = 30,
+                      filename = dem_repro_file, overwrite = TRUE)
+if (terra::is.lonlat(dem)) stop("El DEM de análisis debe estar proyectado en metros.")
+if (terra::nlyr(dem) != 1L) stop("Se esperaba una sola banda de elevación.")
+res_dem <- terra::res(dem)
+if (any(abs(res_dem - 30) > 0.01)) stop("La resolución de salida no es 30 m.")
+```
+
+### Puntos de observación evaluados
+
+El P01 representa el mirador del Centro de Visitantes de Hoyo de Pelempito. La coordenada `r fmt(p01_lat, 6)`° N y `r fmt(abs(p01_lon), 6)`° O se ubicó sobre la edificación identificada en la imagen satelital. Con un modelo digital de superficie (DSM) de celdas de 30 m, esa coordenada identifica aproximadamente el sitio del mirador, sin precisar dónde se situaría una persona en la terraza ni la altura de esta sobre el terreno.
+
+Los puntos P02–P05 se digitalizaron como posiciones exploratorias en QGIS y sus coordenadas se conservan en el GeoPackage. El análisis compara la visibilidad desde estos cuatro puntos y desde el mirador existente; no busca automáticamente otros lugares. Por eso, los resultados describen únicamente las cinco posiciones evaluadas. Para proponer nuevos sitios haría falta definir primero una zona de búsqueda y reglas de selección que puedan repetirse en R.
+
+```{r cargar-puntos, include=FALSE}
+
+# 1. Comprobar que existe el GeoPackage de los puntos exploratorios.
+if (!file.exists(puntos_file)) {
+  stop("Falta el GeoPackage de los puntos: ", puntos_file)
+}
+
+# 2. Leer los puntos que se habían identificado en QGIS.
+puntos_exploratorios <- sf::st_read(
+  puntos_file,
+  quiet = TRUE
+)
+
+# 3. Comprobar que el archivo tiene las columnas necesarias.
+campos <- c("id", "sector", "tipo")
+
+if (!all(campos %in% names(puntos_exploratorios))) {
+  stop("El GeoPackage debe tener las columnas id, sector y tipo.")
+}
+
+# 4. Revisar los identificadores de los puntos.
+# P02-P05 son necesarios; el antiguo P01 puede estar o no en el archivo.
+ids_archivo <- trimws(
+  as.character(puntos_exploratorios$id)
+)
+
+ids_candidatos <- sprintf("P%02d", 2:5)
+
+if (anyNA(ids_archivo) ||
+    anyDuplicated(ids_archivo) ||
+    !all(ids_candidatos %in% ids_archivo) ||
+    !all(ids_archivo %in% c("P01", ids_candidatos))) {
+
+  stop(
+    "Se necesitan P02, P03, P04 y P05; P01 es opcional. ",
+    "Identificadores encontrados: ",
+    paste(ids_archivo, collapse = ", ")
+  )
+}
+
+# 5. Comprobar que todos los registros tienen una ubicación.
+if (any(sf::st_is_empty(puntos_exploratorios))) {
+  stop("Hay puntos sin geometría en el GeoPackage.")
+}
+
+# 6. Llevar las coordenadas de los puntos al sistema del DEM.
+puntos_exploratorios$id <- ids_archivo
+
+puntos_exploratorios <- sf::st_transform(
+  puntos_exploratorios,
+  sf::st_crs(terra::crs(dem))
+)
+
+# 7. Conservar solo P02-P05.
+# P01 se creará abajo con la ubicación elegida sobre la edificación.
+puntos_exploratorios <- puntos_exploratorios[
+  puntos_exploratorios$id != "P01",
+  campos
+]
+
+puntos_exploratorios$id <- as.character(puntos_exploratorios$id)
+puntos_exploratorios$sector <- as.character(puntos_exploratorios$sector)
+puntos_exploratorios$tipo <- as.character(puntos_exploratorios$tipo)
+
+# 8. Crear P01 desde la longitud y latitud definidas al inicio del manuscrito.
+p01 <- sf::st_as_sf(
+  data.frame(
+    id = "P01",
+    sector = "oeste/suroeste",
+    tipo = "mirador existente",
+    lon = p01_lon,
+    lat = p01_lat
   ),
-  Uso = c(
-    "Procesamiento y elaboración de figuras",
-    "Análisis y generación de tablas",
-    "Contextualización teórica y metodológica"
+  coords = c("lon", "lat"),
+  crs = 4326
+)
+
+# Cambiar P01 a UTM 19N para que coincida con el DEM y los demás puntos.
+p01 <- sf::st_transform(
+  p01,
+  sf::st_crs(terra::crs(dem))
+)
+
+# 9. Unir los cinco puntos y ordenarlos de P01 a P05.
+# Tomar las ubicaciones sin depender del nombre de la columna espacial.
+geometrias <- c(
+  sf::st_geometry(p01),
+  sf::st_geometry(puntos_exploratorios)
+)
+
+# Construir una capa nueva con los mismos campos para los cinco puntos.
+puntos <- sf::st_sf(
+  id = c(as.character(p01$id), puntos_exploratorios$id),
+  sector = c(as.character(p01$sector), puntos_exploratorios$sector),
+  tipo = c(as.character(p01$tipo), puntos_exploratorios$tipo),
+  geometry = geometrias
+)
+
+puntos <- puntos[
+  match(
+    sprintf("P%02d", 1:5),
+    as.character(puntos$id)
+  ),
+]
+
+# 10. Guardar sus coordenadas Este y Norte para el análisis de visibilidad.
+coords <- sf::st_coordinates(puntos)
+
+if (ncol(coords) != 2L) {
+  stop("Las geometrías de observación deben ser puntos simples.")
+}
+
+```
+
+## Análisis geomorfométrico
+
+### Pendiente y sombreado del relieve
+
+A partir del modelo de superficie reproyectado se calcularon la pendiente en grados y un sombreado con azimut de 315° y altura solar de 45°. El sombreado facilita reconocer visualmente la depresión, sus laderas y posibles crestas, pero no las delimita ni las clasifica; para describir las formas del relieve se aplicó después `r.geomorphon`.
+
+```{r calcular-derivados, include=FALSE}
+# Calcular pendiente y sombreado; extraer elevación y pendiente en cada punto.
+terreno <- terra::terrain(dem, v = c("slope", "aspect"), unit = "radians")
+pendiente <- terra::terrain(dem, v = "slope", unit = "degrees")
+hillshade <- terra::shade(terreno[["slope"]], terreno[["aspect"]],
+                         angle = 45, direction = 315)
+v_puntos <- terra::vect(puntos)
+z_puntos <- terra::extract(dem, v_puntos)[[2]]
+pend_puntos <- terra::extract(pendiente, v_puntos)[[2]]
+if (anyNA(z_puntos) || anyNA(pend_puntos)) {
+  stop("Hay puntos fuera de las celdas válidas del DEM o la pendiente.")
+}
+```
+
+### Formas del relieve a diferentes escalas
+
+Se utilizó `r.geomorphon` para clasificar las celdas del modelo de superficie según la forma de su entorno [@jasiewicz2013geomorphons]. Para describir cada punto de observación se consultó la clase de la celda donde está ubicado. La clasificación considera el entorno de esa celda en ocho direcciones, hasta la distancia definida por el radio de búsqueda.
+
+Se compararon radios de `r paste(search_values, collapse = ", ")` celdas para observar si la forma asignada a cada punto cambia con la escala. En la tabla principal se presenta el radio intermedio de 11 celdas, equivalente aproximadamente a 330 m con celdas de 30 m. Se usó `skip = 0` para no excluir las celdas próximas al centro, `flat = 1` como umbral angular de 1° para distinguir direcciones casi planas y `dist = 0` para no aplicar un ajuste de ese umbral según la distancia.
+
+```{r calcular-geomorfonos, include=FALSE}
+grass <- Sys.which("grass")
+
+if (!nzchar(grass)) {
+  stop(
+    "No se encontró 'grass' en PATH. ",
+    "Configure GRASS para usarlo desde RStudio."
+  )
+}
+
+# 2. Definir dónde GRASS guardará sus datos de trabajo.
+grassdata <- normalizePath(
+  "grassdata",
+  winslash = "/",
+  mustWork = FALSE
+)
+
+location <- file.path(grassdata, "pelempito")
+mapset <- file.path(location, "PERMANENT")
+
+dir.create(
+  grassdata,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# 3. Función para ejecutar comandos de GRASS desde R.
+argumento <- function(x) {
+  ifelse(
+    grepl("[[:space:]]", x),
+    shQuote(x),
+    x
+  )
+}
+
+grass_cmd <- function(args, etiqueta) {
+  args_grass <- vapply(
+    args,
+    argumento,
+    character(1)
+  )
+
+  status <- system2(
+    grass,
+    args = args_grass
+  )
+
+  # Si GRASS informa un fallo, detener el tejido e indicar el paso.
+  if (!is.numeric(status) ||
+      length(status) != 1L ||
+      status != 0) {
+    stop(
+      "Falló GRASS en ",
+      etiqueta,
+      ": ",
+      paste(status, collapse = ", ")
+    )
+  }
+
+  invisible(status)
+}
+
+# 4. Obtener la ruta completa del DEM que ya se reproyectó en R.
+dem_abs <- normalizePath(
+  dem_repro_file,
+  winslash = "/",
+  mustWork = TRUE
+)
+
+# Crear la Location de GRASS solamente si todavía no existe.
+if (!dir.exists(mapset)) {
+  grass_cmd(
+    c("-c", dem_abs, "-e", location),
+    "crear la Location"
+  )
+}
+
+# 5. Importar el DEM a GRASS con el nombre interno "dem".
+grass_cmd(
+  c(
+    mapset, "--exec", "r.import",
+    paste0("input=", dem_abs),
+    "output=dem",
+    "--overwrite"
+  ),
+  "importar el DEM"
+)
+
+# Hacer que la región de cálculo coincida con el DEM importado.
+grass_cmd(
+  c(
+    mapset, "--exec", "g.region",
+    "raster=dem"
+  ),
+  "definir la región"
+)
+
+# 6. Preparar un nombre de archivo para cada valor de search.
+archivos_geomorphon <- file.path(
+  dir_processed,
+  paste0("geomorphon_s", search_values, ".tif")
+)
+
+# 7. Clasificar todas las celdas para cinco radios de búsqueda.
+# skip=0: incluir el entorno inmediato; flat=1: umbral angular de 1 grado;
+# dist=0: mantener ese umbral sin ajuste por distancia.
+for (i in seq_along(search_values)) {
+
+  radio <- search_values[i]
+  nombre_mapa <- paste0("geomorphon_s", radio)
+
+  grass_cmd(
+    c(
+      mapset, "--exec", "r.geomorphon",
+      "elevation=dem",
+      paste0("forms=", nombre_mapa),
+      paste0("search=", radio),
+      "skip=0",
+      "flat=1",
+      "dist=0",
+      "--overwrite"
+    ),
+    paste("clasificar geomorfones con search", radio)
+  )
+
+  # Exportar la clasificación de GRASS como GeoTIFF.
+  salida <- normalizePath(
+    archivos_geomorphon[i],
+    winslash = "/",
+    mustWork = FALSE
+  )
+
+  grass_cmd(
+    c(
+      mapset, "--exec", "r.out.gdal",
+      paste0("input=", nombre_mapa),
+      paste0("output=", salida),
+      "format=GTiff",
+      "--overwrite"
+    ),
+    paste("exportar geomorfones con search", radio)
+  )
+}
+
+# 8. Abrir los cinco GeoTIFF producidos.
+geomorphons <- lapply(
+  archivos_geomorphon,
+  terra::rast
+)
+
+names(geomorphons) <- paste0("s", search_values)
+
+# Comprobar que los mapas mantienen la cuadrícula del DEM.
+for (g in geomorphons) {
+  if (!terra::compareGeom(
+    dem,
+    g,
+    stopOnError = FALSE
+  )) {
+    stop(
+      "Un mapa de geomorfones no coincide ",
+      "espacialmente con el DEM."
+    )
+  }
+}
+
+# 9. Asociar los códigos de las clases con sus nombres.
+formas <- c(
+  "Plano",
+  "Cima",
+  "Cresta",
+  "Hombro",
+  "Espolón",
+  "Ladera",
+  "Hondonada",
+  "Pie de ladera",
+  "Valle",
+  "Depresión"
+)
+
+# Extraer la clase de la celda donde cae cada punto en los cinco mapas.
+clases_puntos <- sapply(
+  geomorphons,
+  function(g) {
+    terra::extract(g, v_puntos)[[2]]
+  }
+)
+
+# Comprobar que todos los puntos recibieron una clase válida.
+if (anyNA(clases_puntos) ||
+    any(!clases_puntos %in% seq_along(formas))) {
+  stop(
+    "No se pudo clasificar alguno de los puntos ",
+    "con r.geomorphon."
+  )
+}
+
+# 10. Preparar la tabla general usando search = 11.
+tabla_puntos <- data.frame(
+  id = as.character(puntos$id),
+  sector = as.character(puntos$sector),
+  tipo = as.character(puntos$tipo),
+  elev_m = z_puntos,
+  pend_deg = pend_puntos,
+  forma_s11 = formas[clases_puntos[, "s11"]]
+)
+
+# Preparar otra tabla para comparar las cinco escalas.
+tabla_escalas <- data.frame(
+  Punto = tabla_puntos$id,
+  lapply(
+    seq_along(search_values),
+    function(i) {
+      formas[clases_puntos[, i]]
+    }
+  ),
+  check.names = FALSE
+)
+
+names(tabla_escalas)[-1] <- paste0(
+  "search = ",
+  search_values
+)
+
+```
+
+## Análisis de cuencas visuales
+
+Se utilizó `r.viewshed` de GRASS GIS para calcular dos cuencas visuales desde cada punto. En la primera, el observador se situó a 1,7 m sobre el DSM, como aproximación a la altura de los ojos de una persona de pie. En la segunda se situó a 5 m, para explorar cómo cambiaría la visibilidad desde una posición más elevada. Para cada celda, el programa comprobó si la superficie situada entre ella y el observador interrumpía la línea de visión. Se evaluó la visibilidad hacia la superficie representada en cada celda, sin añadir altura al lugar observado (`target_elevation = 0`). El radio máximo fue de 10 km y la salida se registró como 1 para las celdas visibles y 0 para las no visibles.
+
+En el mirador existente no se conoce la altura de la terraza sobre el terreno. Además, el DSM no permite distinguirla por separado. Por ello, los resultados de 1,7 y 5 m se utilizan para comparar el efecto de la altura del observador y no representan una medición exacta de la vista desde esa terraza.
+
+Los parámetros comunes se resumen en la Tabla \@ref(tab:parametros-viewshed).
+
+| Parámetro | Valor |
+|:--|:--|
+| Modelo de entrada | Copernicus DEM GLO-30 (DSM) reproyectado |
+| Sistema de coordenadas | EPSG:32619 |
+| Resolución | 30 m |
+| Puntos | P01–P05 |
+| Altura del observador | 1,7 m y 5 m sobre el DSM |
+| Radio máximo | 10 km |
+| Salida | 0 = no visible; 1 = visible |
+
+Table: (\#tab:parametros-viewshed) Parámetros del análisis de cuencas visuales.
+
+```{r calcular-viewsheds, include=FALSE}
+
+# 1. Crear todas las combinaciones de punto y altura.
+# Cinco puntos por dos alturas producen diez escenarios.
+escenarios <- expand.grid(
+  punto = as.character(puntos$id),
+  altura = alturas_m,
+  stringsAsFactors = FALSE
+)
+
+# Ordenar los escenarios para facilitar su revisión.
+escenarios <- escenarios[
+  order(escenarios$punto, escenarios$altura),
+]
+
+# 2. Preparar una etiqueta para incluir la altura en cada nombre.
+etiqueta_altura <- ifelse(
+  escenarios$altura == 1.7,
+  "1_7m",
+  "5m"
+)
+
+# Asignar un nombre distinto al archivo de cada escenario.
+escenarios$archivo <- file.path(
+  dir_viewshed,
+  paste0(
+    "viewshed_",
+    escenarios$punto,
+    "_",
+    etiqueta_altura,
+    ".tif"
   )
 )
 
-kable(
-  tabla_ejemplo,
-  format = "latex",
-  booktabs = TRUE,
-  caption = "Resumen de materiales e insumos empleados en el estudio.",
-  align = c("l", "l", "l")
-) %>%
-  kable_styling(
-    latex_options = c("HOLD_position"),
-    full_width = FALSE,
-    font_size = 10
-  ) %>%
-  column_spec(2, width = "6cm") %>%
-  column_spec(3, width = "4.5cm") %>%
-  footnote(
-    general = "Ejemplo de tabla generada con kableExtra.",
-    general_title = "Nota:"
+# 3. Repetir el análisis para los diez escenarios.
+for (i in seq_len(nrow(escenarios))) {
+
+  # Buscar cuál de los cinco puntos corresponde a este escenario.
+  indice_punto <- match(
+    escenarios$punto[i],
+    as.character(puntos$id)
   )
-```
 
-## Ejemplo de tabla manual en Markdown
+  # Crear el nombre que tendrá este resultado dentro de GRASS.
+  nombre_mapa <- paste0(
+    "v_",
+    escenarios$punto[i],
+    "_",
+    etiqueta_altura[i]
+  )
 
-La Tabla \@ref(tab:tabla-manual) ilustra cómo escribir una tabla simple manualmente.
+  # Preparar las coordenadas UTM como "este,norte".
+  # Ese es el formato que espera el parámetro coordinates de GRASS.
+  xy <- paste(
+    format(
+      coords[indice_punto, 1],
+      scientific = FALSE,
+      trim = TRUE
+    ),
+    format(
+      coords[indice_punto, 2],
+      scientific = FALSE,
+      trim = TRUE
+    ),
+    sep = ","
+  )
 
-
-| Elemento        | Tipo      | Observación                      |
-|:----------------|:----------|:---------------------------------|
-| Área de estudio | Espacial  | Delimitación del sitio analizado |
-| Variables       | Atributos | Variables medidas o derivadas    |
-| Salidas         | Productos | Mapas, tablas y figuras          |
-
-Table: (\#tab:tabla-manual) Tabla de ejemplo escrita manualmente en Markdown.
-
-## Ejemplo de figura insertada desde archivo
-
-Te explico cómo insertar figuras y referirlas apropiadamente (referencia cruzada). Este es un ejemplo de referencia cruzada: "En la Figura \@ref(fig:figura-archivo) se muestra una imagen insertada desde un archivo externo.".
-
-Este es un ejemplo de inserción de figura desde archivo:
-
-> Sustituye `"figura-ejemplo.jpg"` por la ruta real de tu imagen.
-
-```{r figura-archivo, fig.cap="Figura de ejemplo insertada desde archivo externo.", out.width='100%'}
-knitr::include_graphics("figura-ejemplo.jpg")
-```
-
-
-## Ejemplo de figura generada con código de R
-
-Este es un ejemplo de referencia cruzada a una figura generada con código: "La Figura \@ref(fig:figura-codigo) muestra un gráfico sencillo producido con código reproducible de R".
-
-
-```{r figura-codigo, fig.cap="Relación de ejemplo entre dos variables usando el conjunto de datos `mtcars`.", out.width='100%'}
-ggplot(mtcars, aes(x = wt, y = mpg)) +
-  geom_point() +
-  labs(
-    x = "Peso del vehículo",
-    y = "Millas por galón"
+  # 4. Calcular la cuenca visual binaria.
+  # target_elevation=0: evaluar la superficie de cada celda sin añadir altura.
+  grass_cmd(
+    c(
+      mapset,
+      "--exec",
+      "r.viewshed",
+      "-b",
+      "input=dem",
+      paste0("output=", nombre_mapa),
+      paste0("coordinates=", xy),
+      paste0(
+        "observer_elevation=",
+        escenarios$altura[i]
+      ),
+      "target_elevation=0",
+      paste0(
+        "max_distance=",
+        radio_viewshed_m
+      ),
+      "--overwrite"
+    ),
+    paste(
+      "calcular viewshed",
+      escenarios$punto[i],
+      escenarios$altura[i]
     )
+  )
+
+  # 5. Preparar la ruta completa del GeoTIFF de salida.
+  salida <- normalizePath(
+    escenarios$archivo[i],
+    winslash = "/",
+    mustWork = FALSE
+  )
+
+  # Exportar de GRASS a un archivo .tif en data/viewshed.
+  grass_cmd(
+    c(
+      mapset,
+      "--exec",
+      "r.out.gdal",
+      paste0("input=", nombre_mapa),
+      paste0("output=", salida),
+      "format=GTiff",
+      "--overwrite"
+    ),
+    paste(
+      "exportar viewshed",
+      escenarios$punto[i],
+      escenarios$altura[i]
+    )
+  )
+}
+
+```
+
+### Cuantificación de la superficie visible
+
+En cada escenario se contó el número de celdas visibles y se multiplicó por el área de cada celda (900 m²). La superficie visible se expresó en km².
+
+```{r cuantificar-superficie-visible, include=FALSE}
+resumir <- function(archivo) {
+  r <- terra::rast(archivo)
+  if (!terra::compareGeom(dem, r, stopOnError = FALSE)) {
+    stop("La salida no coincide con el DEM: ", archivo)
+  }
+  f <- terra::freq(r)
+  valores <- f$value[!is.na(f$value)]
+  if (!all(valores %in% c(0, 1))) stop("Salida no binaria: ", archivo)
+  n <- sum(f$count[!is.na(f$value) & f$value == 1])
+  n * prod(terra::res(r)) / 1e6
+}
+escenarios$area_km2 <- vapply(escenarios$archivo, resumir, numeric(1))
+tabla_areas <- data.frame(
+  Punto = as.character(puntos$id),
+  area_1_7 = escenarios$area_km2[match(paste(puntos$id, 1.7),
+                                     paste(escenarios$punto, escenarios$altura))],
+  area_5 = escenarios$area_km2[match(paste(puntos$id, 5),
+                                   paste(escenarios$punto, escenarios$altura))]
+)
+tabla_areas$diferencia <- tabla_areas$area_5 - tabla_areas$area_1_7
+tabla_areas$cambio_pct <- 100 * tabla_areas$diferencia / tabla_areas$area_1_7
+if (anyNA(tabla_areas) || any(!is.finite(tabla_areas$cambio_pct))) {
+  stop("No se pudo construir la comparación de alturas.")
+}
+mejor_17 <- tabla_areas$Punto[which.max(tabla_areas$area_1_7)]
+mayor_cambio <- tabla_areas$Punto[which.max(tabla_areas$cambio_pct)]
+```
+
+### Comparación entre alturas del observador
+
+Para cada punto se comparó el área visible a 1,7 y 5 m. Se calculó cuántos km² cambia el área visible al elevar al observador y qué porcentaje representa ese cambio respecto al resultado de 1,7 m. Así se puede ver en qué puntos la altura adicional modifica más la superficie visible.
+
+### Perfiles de líneas de visión
+
+Se preparó un perfil para cada punto de observación. En cada caso se eligió automáticamente una celda que no fuera visible a 1,7 m y sí lo fuera a 5 m, buscando entre ellas la más cercana a 3 km del observador. La selección se hizo con las salidas de `r.viewshed`, sin marcar destinos manualmente. Después se extrajo con `r.profile` la altura del DSM a lo largo de cada trayecto, a intervalos de 30 m, y se dibujó la línea recta desde ambas alturas del observador hasta la celda elegida. Los perfiles ayudan a examinar cómo la superficie intermedia puede interrumpir la vista [@osullivan2001visibility]. Los manuales de [r.viewshed](https://grass.osgeo.org/grass-stable/manuals/r.viewshed.html) y [r.profile](https://grass.osgeo.org/grass-stable/manuals/r.profile.html) documentan, respectivamente, el cálculo de la visibilidad y la extracción del perfil.
+
+```{r preparar-perfiles-vision, include=FALSE}
+perfiles_por_punto <- vector("list", nrow(puntos))
+objetivos_perfil <- data.frame(
+  punto = as.character(puntos$id), distancia_m = NA_real_
+)
+
+for (i in seq_len(nrow(puntos))) {
+  id <- as.character(puntos$id[i])
+  archivo_17 <- escenarios$archivo[escenarios$punto == id & escenarios$altura == 1.7]
+  archivo_5 <- escenarios$archivo[escenarios$punto == id & escenarios$altura == 5]
+  vista_17 <- terra::rast(archivo_17)
+  vista_5 <- terra::rast(archivo_5)
+
+  # Buscar las celdas que pasan de no visibles a visibles en este punto.
+  nuevas <- which(terra::values(vista_17, mat = FALSE) == 0 &
+                  terra::values(vista_5, mat = FALSE) == 1)
+  if (!length(nuevas)) {
+    stop("No hay celdas nuevas visibles desde ", id, ".")
+  }
+
+  origen <- coords[i, 1:2]
+  xy_nuevas <- terra::xyFromCell(dem, nuevas)
+  distancias <- sqrt((xy_nuevas[, 1] - origen[1])^2 +
+                    (xy_nuevas[, 2] - origen[2])^2)
+  validas <- which(distancias > 60 & distancias <= radio_viewshed_m)
+  if (!length(validas)) {
+    stop("No hay celdas válidas para el perfil de ", id, ".")
+  }
+
+  # Repetir la misma regla de selección en los cinco puntos.
+  elegida <- validas[which.min(abs(distancias[validas] - 3000))]
+  celda_objetivo <- nuevas[elegida]
+  distancia_objetivo <- distancias[elegida]
+  destino <- xy_nuevas[elegida, ]
+  objetivos_perfil$distancia_m[i] <- distancia_objetivo
+
+  # Extraer un archivo diferente para cada trayecto.
+  perfil_file <- normalizePath(
+    file.path(dir_viewshed, paste0("perfil_vision_", id, ".txt")),
+    winslash = "/", mustWork = FALSE
+  )
+  coord_perfil <- paste(
+    format(c(origen[1], origen[2], destino[1], destino[2]),
+           scientific = FALSE, trim = TRUE), collapse = ","
+  )
+  grass_cmd(c(mapset, "--exec", "r.profile", "input=dem",
+              paste0("output=", perfil_file),
+              paste0("coordinates=", coord_perfil),
+              "resolution=30", "--overwrite"),
+            paste("extraer perfil de", id))
+  perfil <- utils::read.table(perfil_file, header = FALSE, na.strings = "*",
+                              col.names = c("distancia_m", "superficie_m"))
+  perfil <- perfil[is.finite(perfil$distancia_m) &
+                   is.finite(perfil$superficie_m) &
+                   perfil$distancia_m < distancia_objetivo, ]
+  if (nrow(perfil) < 2L) stop("No se pudo leer el perfil del DSM para ", id)
+
+  # r.profile puede terminar antes de la celda de destino; añadirla.
+  z_inicio <- z_puntos[i]
+  z_destino <- terra::values(dem, mat = FALSE)[celda_objetivo]
+  if (!is.finite(z_destino)) stop("El destino no tiene altura válida para ", id)
+  perfil <- rbind(perfil,
+                  data.frame(distancia_m = distancia_objetivo,
+                             superficie_m = z_destino))
+  perfil$linea_17 <- z_inicio + 1.7 +
+    (z_destino - z_inicio - 1.7) * perfil$distancia_m / distancia_objetivo
+  perfil$linea_5 <- z_inicio + 5 +
+    (z_destino - z_inicio - 5) * perfil$distancia_m / distancia_objetivo
+  perfil$punto <- id
+  perfiles_por_punto[[i]] <- perfil
+}
+perfiles <- do.call(rbind, perfiles_por_punto)
+perfiles$punto <- factor(perfiles$punto, levels = as.character(puntos$id))
+
+# Examinar lo que muestra el perfil de P04 sin atribuirle toda la cuenca visual.
+p04_perfil <- perfiles[perfiles$punto == "P04", ]
+interior_p04 <- p04_perfil$distancia_m > 0 &
+  p04_perfil$distancia_m < objetivos_perfil$distancia_m[objetivos_perfil$punto == "P04"]
+cruza_17 <- any(p04_perfil$superficie_m[interior_p04] >
+                p04_perfil$linea_17[interior_p04])
+cruza_5 <- any(p04_perfil$superficie_m[interior_p04] >
+               p04_perfil$linea_5[interior_p04])
+lectura_p04 <- if (cruza_17 && !cruza_5) {
+  paste("En el perfil muestreado, la superficie intermedia supera la línea",
+        "de 1,7 m y queda por debajo de la de 5 m.")
+} else {
+  paste("El perfil muestreado no muestra con claridad una obstrucción que",
+        "desaparezca al pasar de 1,7 a 5 m; la clasificación de visibilidad",
+        "procede del cálculo completo de r.viewshed.")
+}
 ```
 
 # Resultados
 
-En esta sección se presentan los hallazgos de forma ordenada y directa. Los resultados no deben colocarse como salidas crudas de la consola de R, sino como redacción, tablas o figuras interpretables.
 
-Por ejemplo, la Figura \@ref(fig:figura-codigo) sugiere una relación negativa entre el peso del vehículo y el rendimiento de combustible en este conjunto de datos de ejemplo. Del mismo modo, la Tabla \@ref(tab:tabla-estadisticos) resume algunos estadísticos descriptivos básicos.
 
-## Ejemplo adicional de tabla de resultados
+## Características de los puntos de observación
 
-```{r tabla-estadisticos}
-resumen_resultados <- mtcars %>%
-  summarise(
-    media_mpg = mean(mpg),
-    sd_mpg = sd(mpg),
-    media_wt = mean(wt),
-    sd_wt = sd(wt)
-  ) %>%
-  pivot_longer(cols = everything(),
-               names_to = "Estadistico",
-               values_to = "Valor")
+La Tabla \@ref(tab:tabla-caracteristicas-puntos) presenta la elevación, la pendiente y la forma del relieve de los cinco puntos para el radio de 11 celdas. La Figura \@ref(fig:mapa-puntos-relieve) permite ubicarlos sobre el sombreado. La Tabla \@ref(tab:tabla-formas-escalas) muestra cómo cambia la clasificación al modificar el radio de búsqueda, y la Figura \@ref(fig:mapa-formas-escalas) presenta los cinco mapas correspondientes.
 
-kable(
-  resumen_resultados,
-  format = "latex",
-  booktabs = TRUE,
-  digits = 2,
-  caption = "Estadísticos descriptivos básicos del conjunto de datos de ejemplo.",
-  col.names = c("Estadístico", "Valor")
-) %>%
-  kable_styling(
-    latex_options = c("hold_position"),
-    full_width = FALSE,
-    font_size = 10
-  )
+```{r tabla-caracteristicas-puntos, results='asis'}
+knitr::kable(tabla_puntos, format = "latex", booktabs = TRUE, digits = 2,
+             col.names = c("Punto", "Ubicación general", "Tipo", "Elevación (m)",
+                           "Pendiente (°)", "Forma (search = 11)"),
+             caption = "Características de los puntos de observación.") |>
+  kableExtra::kable_styling(latex_options = "hold_position", full_width = FALSE,
+                            font_size = 9)
 ```
+
+```{r mapa-puntos-relieve, fig.cap="Ubicación de los cinco puntos de observación sobre el sombreado del relieve. El color indica la forma del relieve asignada a cada punto con search = 11.", fig.width=8, fig.height=6}
+# Recortar el sombreado alrededor de los cinco puntos, con 1 km de margen.
+area_mapa <- terra::ext(min(coords[, 1]) - 1000, max(coords[, 1]) + 1000,
+                        min(coords[, 2]) - 1000, max(coords[, 2]) + 1600)
+fondo_puntos <- as.data.frame(terra::crop(hillshade, area_mapa),
+                              xy = TRUE, na.rm = TRUE)
+names(fondo_puntos)[3] <- "sombra"
+
+# La columna forma_s11 es la misma que se presenta en la Tabla 2.
+ubicaciones_mapa <- data.frame(
+  x = coords[, 1], y = coords[, 2],
+  punto = tabla_puntos$id,
+  forma = tabla_puntos$forma_s11
+)
+colores_formas <- c(
+  "Plano" = "#999999", "Cima" = "#D55E00",
+  "Cresta" = "#6A3D9A", "Hombro" = "#E69F00",
+  "Espolón" = "#009E73", "Ladera" = "#778A43",
+  "Hondonada" = "#A65628", "Pie de ladera" = "#56B4E9",
+  "Valle" = "#CC79A7", "Depresión" = "#F0E442"
+)
+
+ggplot() +
+  geom_raster(data = fondo_puntos,
+              aes(x = x, y = y, fill = sombra)) +
+  scale_fill_gradient(low = "grey30", high = "grey95", guide = "none") +
+  geom_segment(data = ubicaciones_mapa,
+               aes(x = x, y = y, xend = x, yend = y + 1100),
+               colour = "grey20", linewidth = 0.3) +
+  geom_point(data = ubicaciones_mapa,
+             aes(x = x, y = y), colour = "white", size = 8) +
+  geom_point(data = ubicaciones_mapa,
+             aes(x = x, y = y, colour = forma), size = 6) +
+  geom_label(data = ubicaciones_mapa,
+             aes(x = x, y = y + 1100, label = punto),
+             size = 3, fill = "white", label.size = 0.15) +
+  scale_colour_manual(values = colores_formas, name = "Forma (search = 11)",
+                      guide = guide_legend(override.aes = list(size = 5))) +
+  coord_equal() +
+  labs(x = "Este (m)", y = "Norte (m)")
+```
+
+```{r tabla-formas-escalas, results='asis'}
+knitr::kable(tabla_escalas, format = "latex", booktabs = TRUE,
+             caption = "Forma del relieve asignada a cada punto según el radio de búsqueda.") |>
+  kableExtra::kable_styling(latex_options = "hold_position", full_width = FALSE,
+                            font_size = 9)
+```
+
+```{r mapa-formas-escalas, fig.cap="Formas del relieve obtenidas con cinco radios de búsqueda. Los puntos P01–P05 indican las celdas cuyas clases se presentan en la tabla de comparación entre escalas.", fig.width=9, fig.height=8}
+# Leer únicamente el área representada en el mapa de ubicación.
+etiquetas_escalas <- paste0("search = ", search_values)
+datos_formas <- do.call(rbind, lapply(seq_along(search_values), function(i) {
+  parte <- as.data.frame(terra::crop(geomorphons[[i]], area_mapa),
+                         xy = TRUE, na.rm = TRUE)
+  names(parte)[3] <- "codigo"
+  parte$forma <- formas[as.integer(parte$codigo)]
+  parte$escala <- etiquetas_escalas[i]
+  parte[, c("x", "y", "forma", "escala")]
+}))
+if (anyNA(datos_formas$forma)) {
+  stop("El mapa de geomorfones contiene códigos de forma desconocidos.")
+}
+datos_formas$escala <- factor(datos_formas$escala, levels = etiquetas_escalas)
+
+ggplot(datos_formas, aes(x = x, y = y, fill = forma)) +
+  geom_raster() +
+  geom_label(data = ubicaciones_mapa,
+             aes(x = x, y = y, label = punto),
+             inherit.aes = FALSE, size = 2.4, label.size = 0.1) +
+  scale_fill_manual(values = colores_formas, name = "Forma del relieve") +
+  coord_equal() +
+  facet_wrap(~escala, ncol = 2) +
+  labs(x = "Este (m)", y = "Norte (m)")
+```
+
+## Distribución espacial de las cuencas visuales
+
+Las Figuras \@ref(fig:mapa-viewsheds-17m) y \@ref(fig:mapa-viewsheds-5m) muestran, sobre el sombreado del relieve, las áreas visibles desde cada punto con el observador a 1,7 y 5 m, respectivamente. Su comparación permite identificar las áreas que pasan a ser visibles al elevar al observador de 1,7 a 5 m.
+
+```{r mapa-viewsheds-17m, fig.cap="Cuencas visuales a 1,7 m sobre el sombreado del relieve.", fig.width=8, fig.height=6.5}
+# Mantener un color para cada altura en los mapas y el gráfico.
+colores_altura <- c("1,7 m" = "#bd3154", "5 m" = "#257ca3")
+
+# Preparar una sola vez el sombreado y las ubicaciones de los puntos.
+fondo <- as.data.frame(hillshade, xy = TRUE, na.rm = TRUE)
+names(fondo)[3] <- "sombra"
+ubicaciones <- data.frame(
+  x = coords[, 1], y = coords[, 2], punto = as.character(puntos$id)
+)
+
+# Esta función dibuja el mismo mapa para cualquiera de las dos alturas.
+mapa_cuenca <- function(altura_m) {
+  seleccion <- escenarios[escenarios$altura == altura_m, ]
+  if (nrow(seleccion) != nrow(puntos)) {
+    stop("Faltan cuencas visuales para la altura ", altura_m, " m.")
+  }
+
+  mapas <- lapply(seq_len(nrow(seleccion)), function(i) {
+    r <- terra::rast(seleccion$archivo[i])
+    r[r != 1] <- NA
+    d <- as.data.frame(r, xy = TRUE, na.rm = TRUE)
+    d <- d[, c("x", "y"), drop = FALSE]
+    if (nrow(d) == 0) return(NULL)
+    d$punto <- seleccion$punto[i]
+    d
+  })
+  visibles <- do.call(rbind, mapas)
+  if (is.null(visibles) || nrow(visibles) == 0) {
+    stop("No hay celdas visibles para la altura ", altura_m, " m.")
+  }
+
+  color_visible <- if (altura_m == 1.7) {
+    colores_altura[["1,7 m"]]
+  } else {
+    colores_altura[["5 m"]]
+  }
+
+  ggplot() +
+    geom_raster(data = fondo, aes(x = x, y = y, fill = sombra)) +
+    scale_fill_gradient(low = "grey15", high = "white", guide = "none") +
+    geom_point(data = visibles, aes(x = x, y = y),
+               color = color_visible, size = 0.08) +
+    geom_point(data = ubicaciones, aes(x = x, y = y),
+               color = "black", size = 1.3) +
+    coord_equal() + facet_wrap(~punto) +
+    labs(x = "Este (m)", y = "Norte (m)")
+}
+
+mapa_cuenca(1.7)
+```
+
+```{r mapa-viewsheds-5m, fig.cap="Cuencas visuales a 5 m sobre el sombreado del relieve.", fig.width=8, fig.height=6.5}
+mapa_cuenca(5)
+```
+
+## Superficie visible según punto y altura
+
+A 1,7 m, **`r mejor_17`** presentó la mayor área visible entre los cinco puntos estudiados, con `r fmt(max(tabla_areas$area_1_7))` km². Las superficies correspondientes a ambas alturas y sus diferencias se presentan en la Tabla \@ref(tab:tabla-superficie-visible) y en la Figura \@ref(fig:grafico-superficie).
+
+```{r tabla-superficie-visible, results='asis'}
+knitr::kable(tabla_areas, format = "latex", booktabs = TRUE, digits = 2,
+             col.names = c("Punto", "1,7 m (km²)", "5 m (km²)",
+                           "Diferencia (km²)", "Cambio (%)"),
+             caption = "Superficie visible según punto y altura del observador.") |>
+  kableExtra::kable_styling(latex_options = "hold_position", full_width = FALSE,
+                            font_size = 9)
+```
+
+```{r grafico-superficie, fig.cap="Superficie visible por punto a 1,7 y 5 m de altura.", fig.width=6.5, fig.height=4}
+# Usar las mismas etiquetas y colores que en los mapas.
+datos_grafico <- escenarios
+datos_grafico$altura_grafico <- factor(
+  ifelse(datos_grafico$altura == 1.7, "1,7 m", "5 m"),
+  levels = names(colores_altura)
+)
+
+ggplot(datos_grafico, aes(x = punto, y = area_km2, fill = altura_grafico)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = colores_altura) +
+  labs(x = "Punto de observación", y = "Superficie visible (km²)",
+       fill = "Altura del observador")
+```
+
+## Efecto de la altura del observador
+
+El mayor cambio porcentual al aumentar la altura se registró en **`r mayor_cambio`**: `r fmt(tabla_areas$cambio_pct[match(mayor_cambio, tabla_areas$Punto)])` %. La Tabla \@ref(tab:tabla-efecto-altura) presenta los cambios de superficie visible en los cinco puntos. Al comparar los mapas de 1,7 y 5 m (Figuras \@ref(fig:mapa-viewsheds-17m) y \@ref(fig:mapa-viewsheds-5m)) se puede observar dónde cambia la visibilidad, aunque estos mapas no indican qué obstáculo concreto bloquea la vista hacia cada celda.
+
+```{r tabla-efecto-altura, results='asis'}
+knitr::kable(
+  tabla_areas[, c("Punto", "diferencia", "cambio_pct")],
+  format = "latex", booktabs = TRUE, digits = 2,
+  col.names = c("Punto", "Diferencia (km²)", "Cambio (%)"),
+  caption = "Cambio de superficie visible al elevar la altura del observador."
+) |>
+  kableExtra::kable_styling(latex_options = "hold_position", full_width = FALSE,
+                            font_size = 9)
+```
+
+## Perfiles del DSM y líneas de visión
+
+Para cada punto se buscaron las celdas que pasaron de no visibles a 1,7 m a visibles a 5 m. Se descartaron las situadas a 60 m o menos del observador y, entre las restantes, se eligió la más cercana a una distancia de 3 km. La Figura \@ref(fig:perfiles-linea-vision) muestra la altura del DSM a lo largo de los cinco trayectos y las líneas trazadas desde ambas alturas del observador. Los perfiles permiten examinar la superficie entre el observador y la celda elegida, pero no indican qué partes del trayecto son visibles. La clasificación de la celda final procede de r.viewshed.
+
+```{r perfiles-linea-vision, fig.cap="Perfil del DSM desde cada punto hasta una celda clasificada como no visible a 1,7 m y visible a 5 m. Las líneas rectas representan la visión desde ambas alturas hacia esa celda.", fig.width=9, fig.height=8}
+ggplot(perfiles, aes(x = distancia_m / 1000)) +
+  geom_line(aes(y = superficie_m, colour = "Superficie (DSM)"), linewidth = 0.7) +
+  geom_line(aes(y = linea_17, colour = "Observador a 1,7 m"), linewidth = 0.6) +
+  geom_line(aes(y = linea_5, colour = "Observador a 5 m"), linewidth = 0.6) +
+  scale_colour_manual(values = c("Superficie (DSM)" = "#595959",
+                                 "Observador a 1,7 m" = "#bd3154",
+                                 "Observador a 5 m" = "#257ca3")) +
+  facet_wrap(~punto, ncol = 2, scales = "free_y") +
+  labs(x = "Distancia desde el observador (km)",
+       y = "Elevación sobre el nivel del mar (m)", colour = NULL)
+```
+
+P04 se clasificó como cresta con el radio de 11 celdas y como cima con el de 33 celdas. Desde este punto se trazó un perfil hasta una celda situada a unos 3 km que se vuelve visible al elevar al observador. Sin embargo, el perfil no permite distinguir claramente qué bloqueaba la vista a 1,7 m. Como solo muestra un trayecto, tampoco explica por qué la superficie visible total desde P04 aumentó 11,54 km².
 
 # Discusión
 
-La discusión interpreta los resultados, los relaciona con la literatura previa y plantea implicaciones, limitaciones y posibles líneas futuras de trabajo. Aquí también pueden incorporarse referencias bibliográficas [@anderson2010geomorphology].
+Los resultados muestran que la superficie visible no depende solo de la elevación del punto. P01 alcanzó la mayor área visible a 1,7 m (`r fmt(tabla_areas$area_1_7[match("P01", tabla_areas$Punto)])` km²), aunque P03 tiene una elevación absoluta mayor (Tabla \@ref(tab:tabla-caracteristicas-puntos)). La pendiente y los geomorfones describen cómo es la celda de cada observador, pero la cuenca visual también depende de la superficie que se encuentra en las distintas direcciones de observación.
 
-Por ejemplo, si los hallazgos obtenidos coinciden con trabajos previos, puede indicarse explícitamente. Si difieren, debe discutirse por qué, considerando diferencias de escala, datos, métodos o contexto.
+P04 merece atención porque su área visible aumentó `r fmt(tabla_areas$cambio_pct[match("P04", tabla_areas$Punto)])` % al pasar de 1,7 a 5 m, más que en los otros puntos. Su pendiente local es baja (`r fmt(tabla_puntos$pend_deg[match("P04", tabla_puntos$id)])`°); los geomorfones lo clasifican como `r tabla_escalas[tabla_escalas$Punto == "P04", "search = 11"]` con el radio de 11 celdas y como `r tabla_escalas[tabla_escalas$Punto == "P04", "search = 33"]` con el de 33 celdas. Estas clases describen su posición respecto al relieve circundante a distintas escalas, pero no identifican los obstáculos en cada dirección. El perfil presentado solo examina un destino; por ello, no podemos atribuir el cambio de toda la cuenca visual a la forma asignada a P04.
 
-En una redacción normal, puedes hacer referencias cruzadas así:
+La comparación entre 1,7 y 5 m muestra que la altura elegida para el observador modifica las áreas calculadas de manera distinta en cada punto. En P01 no conocemos la altura de la terraza: las dos alturas son escenarios de comparación y no mediciones de la vista real desde la edificación. Además, el DSM tiene celdas de 30 m y puede representar vegetación y construcciones. La resolución y los posibles errores de un modelo de elevación pueden modificar los límites de una cuenca visual [@riggs2007viewsheds]. Por eso, los resultados describen la visibilidad según este modelo y deben comprobarse en el lugar antes de usarlos para tomar decisiones.
 
-* "Como se observa en la Figura \@ref(fig:figura-archivo)..."
-* "Los materiales empleados se resumen en la Tabla \@ref(tab:tabla-resumen)..."
-* "Los estadísticos descriptivos aparecen en la Tabla \@ref(tab:tabla-estadisticos)..."
+Los puntos P02–P05 fueron seleccionados de forma exploratoria. Para estudiar posibles miradores en una siguiente etapa, se podría delimitar el borde del Hoyo, identificar crestas u hombros, revisar la pendiente y comparar cuánto se observa específicamente del interior de la depresión. También habría que considerar el acceso, las restricciones ambientales y la seguridad del sitio. Ver más superficie dentro de 10 km no garantiza que se tenga la mejor vista del Hoyo de Pelempito. El área visible tampoco representa por sí sola cómo percibe una persona el paisaje [@nutsford2015viewshed].
 
 # Conclusiones
 
-Resume aquí las conclusiones directamente respaldadas por tus resultados. Deben responder al objetivo o pregunta de investigación y no introducir resultados nuevos.
+La superficie visible varió entre los cinco puntos. **`r mejor_17`** mostró la mayor área visible a 1,7 m (`r fmt(max(tabla_areas$area_1_7))` km²), mientras que **`r mayor_cambio`** registró el mayor aumento al elevar al observador hasta 5 m (`r fmt(max(tabla_areas$cambio_pct))` %). La comparación de alturas revela diferencias que no se explican únicamente por la elevación, la pendiente o la forma del relieve en la celda del observador.
+
+Los puntos exploratorios permiten comparar lugares, pero estos resultados no bastan para elegir un nuevo mirador. Haría falta evaluar la vista hacia el interior del Hoyo, las condiciones de acceso y seguridad, y verificar en campo tanto los posibles sitios como la altura de la terraza del mirador existente.
 
 # Declaración de reproducibilidad
 
-Indica brevemente dónde se encuentra el código, qué datos son públicos, cuáles no se incluyen en el repositorio y cómo pueden obtenerse, las versiones de software relevantes y cualquier paso manual que no haya podido automatizarse.
+Este manuscrito reúne el código y los parámetros utilizados para generar los análisis y las figuras al tejer el documento. Para repetirlos se necesitan el modelo de superficie original, el archivo con los puntos exploratorios P02–P05, R y GRASS GIS. La ubicación de P01 se indica en el código. Aunque los cálculos pueden repetirse, P02–P05 fueron elegidos de manera exploratoria y las interpretaciones de los resultados deben revisarse para el lugar estudiado.
 
 # Auditoría de IA
 
-Si utilizaste inteligencia artificial durante la práctica, documenta brevemente la herramienta y la tarea para la que se utilizó, **un error, limitación, simplificación indebida o afirmación no verificada concreta**, cómo detectaste el problema, con qué fuente, prueba o ejecución lo verificaste y cómo lo corregiste. Si no utilizaste IA, decláralo explícitamente.
+Utilicé IA para organizar el análisis, entender algunas funciones de R y GRASS GIS, revisar el código y mejorar la redacción. Me sirvió para avanzar en la práctica, pero fui revisando sus respuestas con los datos, los resultados y la documentación de las herramientas.
 
-# Guía sobre referencias cruzadas {-}
+Uno de los aspectos que tuve que revisar fue la explicación del resultado de P04. Al principio se sugirió que el aumento del área visible al pasar de 1,7 a 5 m podía deberse a un obstáculo cercano. Para comprobarlo, examiné la pendiente, las formas del relieve y un perfil hacia una celda que cambió de no visible a visible. En ese perfil no pude identificar con claridad un obstáculo que dejara de bloquear la vista. Por eso, describí el aumento observado sin afirmar que una cresta específica lo causó.
 
-> Esta sección es material de ayuda de la plantilla. **Elimínala del manuscrito final.**
+También aclaré algunas limitaciones del análisis. Aunque el producto utilizado se llama Copernicus DEM, es un modelo digital de superficie (DSM) y puede incluir vegetación y construcciones. Tampoco conozco la altura de la terraza del mirador existente, así que las alturas de 1,7 y 5 m representan dos escenarios de comparación. Además, elegí los puntos P02–P05 de forma exploratoria. Comparar sus cuencas visuales me ayuda a estudiar distintos lugares, pero no basta para afirmar que serían buenos sitios para nuevos miradores.
 
-
-## Cómo referir figuras generadas con código
-
-Si un chunk se llama `figura-codigo`, la referencia cruzada se escribe así:
-
-`Figura \@ref(fig:figura-codigo)`
-
-El identificador es el nombre del chunk precedido por `fig:`.
-
-## Cómo referir tablas generadas con `kable` o `kableExtra`
-
-Si un chunk se llama `tabla-resumen`, la referencia cruzada se escribe así:
-
-`Tabla \@ref(tab:tabla-resumen)`
-
-El identificador es el nombre del chunk precedido por `tab:`.
-
-## Cómo referir tablas escritas manualmente en Markdown
-
-En tablas manuales, usa esta sintaxis al inicio del título:
-
-`(\#tab:tabla-manual)`
-
-Y luego cita así:
-
-`Tabla \@ref(tab:mi-tabla)`
-
-## Recomendación importante
-
-En documentos **APA7 + bookdown**, para referencias cruzadas conviene usar `\@ref()` y no `\ref{}`.
-Ejemplos:
-
-* `Figura \@ref(fig:figura-codigo)`
-* `Tabla \@ref(tab:tabla-resumen)`
+Finalmente, revisé las referencias propuestas por la IA. Del artículo de Jasiewicz y Stepinski sobre geomorfones pude comprobar la ficha bibliográfica, el DOI y el resumen, pero no tuve acceso al texto completo. Por eso lo cité como fuente del método, sin atribuirle explicaciones que no había podido verificar. Esta revisión me ayudó a utilizar la IA como apoyo y a comprobar sus propuestas antes de incorporarlas al manuscrito.
 
 # Referencias {-}
